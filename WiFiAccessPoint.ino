@@ -15,11 +15,74 @@ uint16_t port = 80;
 unsigned long previousMillis = 0;
 const long interval = 60000;
 float humidity, temp_f;
+int apMode = 0;
+char buffer[40];
   
 // HTTP server will listen at port 80
 ESP8266WebServer server(80);
 WiFiClient client;
 DHT dht(DHTPIN, DHTTYPE, 30);
+
+void handle_config() {
+  String _ssid = server.arg("ssid");
+  String _pass = server.arg("pass"); 
+  String _apihost = server.arg("apihost");
+  String _apiurl = server.arg("apiurl");
+  _apiurl.replace("%2F", "/");
+  String _apikey = server.arg("apikey");
+ 
+  setEEPROMString(0,  32, _ssid);
+  setEEPROMString(32, 64, _pass);
+  setEEPROMString(64, 128, _apihost);
+  setEEPROMString(128, 192, _apiurl);
+  setEEPROMString(192, 224, _apikey);
+  EEPROM.commit();
+  
+  ESP.reset();
+}
+
+
+String form(String ssid, String pass, String apihost, String apiurl, String apikey) {
+  return 
+  "<html><head><title>WiFi Weather-station [sender] : Admin-panel</title></head><body>"
+  "<p>"
+  "<center>"
+  "<h2>Welcome to WiFi Weather-Station: sender v0.0.2</h2>"
+  "<div>"
+  "<form action='config'>"
+  "<label for='ssid'>SSID</label><input id='ssid' type='text' name='ssid' maxlength=32 value='" + ssid + "'><br />"
+  "<label for='pass'>Password</label><input id='pass' type='text' name='pass' maxlength=32 value='" + pass + "'><br />"
+  "<label for='apihost'>API HOST</label><input id='apihost' type='text' name='apihost' maxlength=64 value='" + apihost + "'><br />"
+  "<label for='apiurl'>API URL</label><input id='apiurl' type='text' name='apiurl' maxlength=64 value='" + apiurl + "'><br />"
+  "<label for='apikey'>API KEY</label><input id='ssid' type='text' name='apikey' maxlength=32 value='" + apikey + "'><br />"
+  "<input type='submit' value='Save & reboot'>"
+  "</form>"
+  "</div>"
+  "<a href='http://garik.pp.ua'>Igor Dubiy</a> (<a href='mailto:netzver@gmail.com'>netzver@gmail.com</a>), 2015-2016<br />"
+  "<small>Mode: " + apMode + " (5 - client. 10+ - access point)</small>"
+  "</center>"
+  "<style>*{font-size:120%;font-family: monospace;}form * {display: block; width: 100%; margin: 5px 0;}div{padding: 20px; margin: 5px 20px; border: 1px solid gray;}</style>"
+  "</body></html>"
+  ;  
+}
+
+String getData() {
+//String.
+
+  char tempVal[10];               //temporarily holds data from vals 
+  String stringVal = "";     //data on buff is copied to this string
+  
+  dtostrf(temp_f, 4, 2, tempVal);  //4 is mininum width, 4 is precision; float value is copied onto buff
+  String res = "{\"temp\": \"";
+  res.concat(tempVal);
+  res.concat("\", \"humidity\": \"");
+  res.concat(humidity);
+  res.concat("\"}");
+  return res;
+return strcpy(strcpy("{\"temp\": \"", tempVal), "\"}");
+//  return tempVal + "\"}"; //, \"humidity\": \"%d\"
+  
+}
 
 void setup(void) {
   EEPROM.begin(250);
@@ -79,6 +142,8 @@ void setup(void) {
   }
 
   if (WiFi.status() != WL_CONNECTED) {
+    apMode = 10;
+    
     WiFi.mode(WIFI_AP);
     // Do a little work to get a unique-ish name. Append the
     // last two bytes of the MAC (HEX'd) to "GARY METEO-":
@@ -94,13 +159,22 @@ void setup(void) {
   
     for (int i=0; i<AP_NameString.length(); i++)
       AP_NameChar[i] = AP_NameString.charAt(i);
+
+
   
     WiFi.softAP(AP_NameChar, "");  
+  } else {
+    apMode = 5;
   }
 
   server.on("/", []() {
     server.send(200, "text/html", form(ssid, pass, apihost, apiurl, apikey));
   });
+
+  server.on("/data", []() {
+    server.send(200, "application/json", getData());
+  });
+  
   server.on("/config", handle_config);
   server.begin();
 }
@@ -113,6 +187,19 @@ void loop(void) {
 
   if (currentMillis - previousMillis >= interval || currentMillis < previousMillis) { //на випадок, якщо дійде до максимального значення, і почне рахувати заново 
     previousMillis = currentMillis;
+
+
+    if (apMode >= 10) {
+      if (++apMode >= 14) {
+        WiFi.disconnect();
+        delay(500);  
+        WiFi.begin("und9473mnxcvxcrew", "passlksdjguf09f0f");
+        delay(500);        
+        WiFi.mode(WIFI_OFF);
+        ESP.reset();
+      }
+    }
+    
   
     if (!client.connect(apihost, port)) {
       Serial.println("connection failed");
@@ -161,47 +248,6 @@ void loop(void) {
   }
 }
 
-void handle_config() {
-  String _ssid = server.arg("ssid");
-  String _pass = server.arg("pass"); 
-  String _apihost = server.arg("apihost");
-  String _apiurl = server.arg("apiurl");
-  _apiurl.replace("%2F", "/");
-  String _apikey = server.arg("apikey");
- 
-  setEEPROMString(0,  32, _ssid);
-  setEEPROMString(32, 64, _pass);
-  setEEPROMString(64, 128, _apihost);
-  setEEPROMString(128, 192, _apiurl);
-  setEEPROMString(192, 224, _apikey);
-  EEPROM.commit();
-  
-  ESP.reset();
-}
-
-
-String form(String ssid, String pass, String apihost, String apiurl, String apikey) {
-  return 
-  "<html><head><title>WiFi Weather-station [sender] : Admin-panel</title></head><body>"
-  "<p>"
-  "<center>"
-  "<h2>Welcome to WiFi Weather-Station: sender</h2>"
-  "<div>"
-  "<form action='config'>"
-  "<label for='ssid'>SSID</label><input id='ssid' type='text' name='ssid' maxlength=32 value='" + ssid + "'><br />"
-  "<label for='pass'>Password</label><input id='pass' type='password' name='pass' maxlength=32 value='" + pass + "'><br />"
-  "<label for='apihost'>API HOST</label><input id='apihost' type='text' name='apihost' maxlength=64 value='" + apihost + "'><br />"
-  "<label for='apiurl'>API URL</label><input id='apiurl' type='text' name='apiurl' maxlength=64 value='" + apiurl + "'><br />"
-  "<label for='apikey'>API KEY</label><input id='ssid' type='text' name='apikey' maxlength=32 value='" + apikey + "'><br />"
-  "<input type='submit' value='Save & reboot'>"
-  "</form>"
-  "</div>"
-  "<a href='http://garik.pp.ua'>Igor Dubiy</a> (<a href='mailto:netzver@gmail.com'>netzver@gmail.com</a>), 2015"
-  "</center>"
-  "<style>*{font-size:120%;font-family: monospace;}form * {display: block; width: 100%; margin: 5px 0;}div{padding: 20px; margin: 5px 20px; border: 1px solid gray;}</style>"
-  "</body></html>"
-  ;  
-}
 
 //todo
 //config interval
